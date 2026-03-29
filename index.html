@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ResumeRank — AI Recruitment Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg:       #080b10;
+  --surface:  #0e1318;
+  --card:     #131920;
+  --border:   #1e2830;
+  --border2:  #243040;
+  --text:     #e8edf2;
+  --muted:    #6b8099;
+  --accent:   #00e5ff;
+  --accent2:  #ff6b35;
+  --green:    #00e676;
+  --yellow:   #ffd740;
+  --red:      #ff5252;
+  --purple:   #b388ff;
+  --font-h:   'Syne', sans-serif;
+  --font-m:   'DM Mono', monospace;
+  --font-b:   'DM Sans', sans-serif;
+  --r:        6px;
+  --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-b);
+  font-size: 14px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Subtle grid bg */
+body::before {
+  content:'';
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.3;
+}
+
+/* ── Layout ── */
+.shell { position:relative; z-index:1; display:flex; flex-direction:column; min-height:100vh; }
+
+/* ── Header ── */
+header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 18px 40px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(8,11,16,0.92);
+  backdrop-filter: blur(12px);
+  position:sticky; top:0; z-index:100;
+}
+.logo {
+  font-family: var(--font-h);
+  font-size: 20px; font-weight: 800; letter-spacing: -0.5px;
+  color: var(--text);
+  display:flex; align-items:center; gap:10px;
+}
+.logo-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow: 0 0 10px var(--accent); }
+.header-meta {
+  font-family: var(--font-m);
+  font-size: 11px; color: var(--muted);
+  display:flex; gap:24px; align-items:center;
+}
+.status-pill {
+  display:flex; align-items:center; gap:6px;
+  padding: 4px 10px; border-radius:20px;
+  border: 1px solid var(--border2);
+  font-size: 11px;
+}
+.status-pill .dot { width:6px; height:6px; border-radius:50%; background:var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── Main ── */
+main { display:flex; flex:1; }
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 300px; min-width:280px;
+  border-right: 1px solid var(--border);
+  padding: 28px 24px;
+  display:flex; flex-direction:column; gap:28px;
+  background: var(--surface);
+  overflow-y:auto;
+}
+.sidebar-section h3 {
+  font-family: var(--font-m);
+  font-size: 10px; font-weight:500;
+  letter-spacing: 0.12em; text-transform:uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Upload zone */
+.upload-zone {
+  border: 1.5px dashed var(--border2);
+  border-radius: var(--r);
+  padding: 24px 16px;
+  text-align:center;
+  cursor:pointer;
+  transition: var(--transition);
+  background: var(--card);
+  position:relative;
+}
+.upload-zone:hover, .upload-zone.dragover {
+  border-color: var(--accent);
+  background: rgba(0,229,255,0.04);
+}
+.upload-zone input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+.upload-icon { font-size:28px; margin-bottom:8px; }
+.upload-zone p { font-size:12px; color:var(--muted); line-height:1.5; }
+.upload-zone strong { color:var(--accent); font-weight:500; }
+
+label.field-label {
+  font-family:var(--font-m);
+  font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--muted); display:block; margin-bottom:6px;
+}
+input[type=text], select, textarea {
+  width:100%; background:var(--card);
+  border:1px solid var(--border2); border-radius:var(--r);
+  color:var(--text); font-family:var(--font-b); font-size:13px;
+  padding:9px 12px; outline:none;
+  transition: border-color var(--transition);
+}
+input[type=text]:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+}
+select option { background:var(--card); }
+textarea { resize:vertical; min-height:90px; font-size:12px; line-height:1.6; }
+
+.field { margin-bottom:14px; }
+
+/* Buttons */
+.btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  padding:10px 18px; border-radius:var(--r); font-size:13px; font-weight:500;
+  cursor:pointer; border:none; transition:var(--transition); font-family:var(--font-b);
+  width:100%; white-space:nowrap;
+}
+.btn-primary {
+  background: var(--accent); color: #000;
+  font-weight: 700;
+}
+.btn-primary:hover { background:#33eaff; transform:translateY(-1px); }
+.btn-primary:active { transform:translateY(0); }
+.btn-ghost {
+  background:transparent; color:var(--muted);
+  border: 1px solid var(--border2);
+}
+.btn-ghost:hover { border-color:var(--border2); color:var(--text); background:var(--card); }
+.btn-sm { padding:6px 12px; font-size:12px; width:auto; }
+
+/* Upload list */
+.file-preview {
+  display:flex; align-items:center; gap:8px;
+  padding:8px 10px; border-radius:var(--r);
+  background:rgba(0,229,255,0.06); border:1px solid rgba(0,229,255,0.2);
+  font-size:12px; color:var(--accent);
+  margin-top:8px;
+}
+.file-preview .remove { margin-left:auto; cursor:pointer; color:var(--muted); font-size:16px; line-height:1; }
+.file-preview .remove:hover { color:var(--red); }
+
+/* Stats bar */
+.stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.stat-chip {
+  background:var(--card); border:1px solid var(--border);
+  border-radius:var(--r); padding:10px 12px;
+}
+.stat-chip .val {
+  font-family:var(--font-h); font-size:20px; font-weight:700;
+  color:var(--text); line-height:1;
+}
+.stat-chip .lbl { font-size:10px; color:var(--muted); margin-top:3px; font-family:var(--font-m); letter-spacing:.05em; }
+
+/* ── Content ── */
+.content { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+
+/* Search bar */
+.search-bar {
+  padding:20px 32px;
+  border-bottom:1px solid var(--border);
+  display:flex; gap:12px; align-items:flex-end;
+  background:var(--surface);
+}
+.search-bar .field { margin:0; flex:1; }
+.search-bar .field-label { margin-bottom:5px; }
+.search-bar input { height:40px; }
+.search-bar select { height:40px; }
+.search-btn {
+  height:40px; padding:0 24px; width:auto;
+  font-family:var(--font-h); font-weight:700; letter-spacing:.05em;
+  font-size:13px;
+}
+
+/* Results area */
+.results-area { flex:1; overflow-y:auto; padding:24px 32px; }
+
+/* Empty state */
+.empty-state {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  height:100%; min-height:300px; gap:16px; color:var(--muted);
+  text-align:center;
+}
+.empty-icon { font-size:48px; opacity:0.3; }
+.empty-state h2 { font-family:var(--font-h); font-size:22px; color:var(--text); opacity:0.5; }
+.empty-state p { font-size:13px; max-width:320px; line-height:1.6; }
+
+/* Results header */
+.results-header {
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom:16px;
+}
+.results-count {
+  font-family:var(--font-m); font-size:12px; color:var(--muted);
+}
+.results-count span { color:var(--accent); font-weight:500; }
+.filter-tabs { display:flex; gap:6px; }
+.tab {
+  padding:5px 12px; border-radius:20px; font-size:12px;
+  cursor:pointer; border:1px solid var(--border2); color:var(--muted);
+  background:transparent; font-family:var(--font-b);
+  transition:var(--transition);
+}
+.tab.active, .tab:hover { border-color:var(--accent); color:var(--accent); background:rgba(0,229,255,0.06); }
+.tab.active { font-weight:600; }
+
+/* Candidate card */
+.candidate-card {
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:8px;
+  margin-bottom:10px;
+  overflow:hidden;
+  transition: border-color var(--transition), transform var(--transition);
+  animation: fadeUp 0.3s ease both;
+}
+@keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+.candidate-card:hover { border-color:var(--border2); transform:translateY(-1px); }
+.candidate-card.shortlisted { border-left:3px solid var(--green); }
+.candidate-card.rejected { border-left:3px solid var(--red); opacity:0.6; }
+.candidate-card.waitlisted { border-left:3px solid var(--yellow); }
+
+.card-main {
+  display:flex; align-items:center; gap:16px; padding:14px 18px;
+  cursor:pointer;
+}
+.rank-badge {
+  font-family:var(--font-h); font-size:22px; font-weight:800;
+  width:44px; text-align:center; flex-shrink:0;
+  color:var(--muted);
+}
+.rank-badge.top1 { color:var(--accent); }
+.rank-badge.top2 { color:var(--purple); }
+.rank-badge.top3 { color:var(--accent2); }
+
+.card-info { flex:1; min-width:0; }
+.candidate-name {
+  font-family:var(--font-h); font-size:15px; font-weight:700;
+  color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.candidate-meta {
+  font-family:var(--font-m); font-size:11px; color:var(--muted); margin-top:3px;
+  display:flex; gap:12px;
+}
+
+.score-ring {
+  width:56px; height:56px; flex-shrink:0; position:relative;
+}
+.score-ring svg { width:100%; height:100%; transform:rotate(-90deg); }
+.score-ring circle { fill:none; stroke-width:4; }
+.score-ring .bg { stroke:var(--border2); }
+.score-ring .fg { stroke-dasharray:138; transition:stroke-dashoffset 0.8s ease; }
+.score-ring .label {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  font-family:var(--font-h); font-weight:700; font-size:13px; line-height:1;
+}
+.score-ring .label span { font-size:8px; font-family:var(--font-m); color:var(--muted); }
+
+.decision-badge {
+  padding:3px 10px; border-radius:20px; font-size:10px; font-weight:600;
+  font-family:var(--font-m); letter-spacing:.06em; text-transform:uppercase;
+  white-space:nowrap;
+}
+.decision-badge.shortlist { background:rgba(0,230,118,0.12); color:var(--green); border:1px solid rgba(0,230,118,0.3); }
+.decision-badge.reject { background:rgba(255,82,82,0.1); color:var(--red); border:1px solid rgba(255,82,82,0.25); }
+.decision-badge.waitlist { background:rgba(255,215,64,0.1); color:var(--yellow); border:1px solid rgba(255,215,64,0.25); }
+.decision-badge.pending { background:rgba(107,128,153,0.12); color:var(--muted); border:1px solid var(--border2); }
+
+/* Expand panel */
+.card-expand {
+  border-top:1px solid var(--border);
+  padding:16px 18px;
+  display:none;
+  animation: fadeDown 0.2s ease;
+}
+@keyframes fadeDown { from{opacity:0} to{opacity:1} }
+.card-expand.open { display:block; }
+
+.resume-preview {
+  background:var(--bg); border:1px solid var(--border); border-radius:var(--r);
+  padding:14px 16px; font-family:var(--font-m); font-size:12px;
+  color:var(--muted); line-height:1.7; max-height:160px; overflow-y:auto;
+  white-space:pre-wrap; margin-bottom:14px;
+  scrollbar-width:thin; scrollbar-color:var(--border2) transparent;
+}
+
+.action-row { display:flex; gap:8px; flex-wrap:wrap; }
+.action-btn {
+  padding:7px 16px; border-radius:20px; font-size:12px; font-weight:600;
+  cursor:pointer; border:none; transition:var(--transition);
+  font-family:var(--font-b); letter-spacing:.02em;
+}
+.action-btn.shortlist { background:rgba(0,230,118,0.12); color:var(--green); border:1px solid rgba(0,230,118,0.3); }
+.action-btn.shortlist:hover { background:rgba(0,230,118,0.25); }
+.action-btn.waitlist { background:rgba(255,215,64,0.1); color:var(--yellow); border:1px solid rgba(255,215,64,0.25); }
+.action-btn.waitlist:hover { background:rgba(255,215,64,0.2); }
+.action-btn.reject { background:rgba(255,82,82,0.1); color:var(--red); border:1px solid rgba(255,82,82,0.25); }
+.action-btn.reject:hover { background:rgba(255,82,82,0.2); }
+.action-btn.delete { background:transparent; color:var(--muted); border:1px solid var(--border2); margin-left:auto; }
+.action-btn.delete:hover { color:var(--red); border-color:var(--red); }
+
+/* Eligibility bar */
+.elig-bar { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.elig-label { font-family:var(--font-m); font-size:10px; color:var(--muted); width:90px; flex-shrink:0; }
+.elig-track { flex:1; height:4px; background:var(--border2); border-radius:2px; overflow:hidden; }
+.elig-fill { height:100%; border-radius:2px; transition:width 0.8s ease; }
+
+/* Toast */
+#toast {
+  position:fixed; bottom:28px; right:28px; z-index:999;
+  padding:12px 18px; border-radius:var(--r);
+  font-size:13px; font-family:var(--font-b);
+  background:var(--card); border:1px solid var(--border2);
+  color:var(--text); box-shadow:0 8px 32px rgba(0,0,0,0.4);
+  transform:translateY(20px); opacity:0; transition:all 0.3s ease;
+  pointer-events:none;
+}
+#toast.show { transform:translateY(0); opacity:1; }
+
+/* Loader */
+.loader {
+  display:flex; align-items:center; justify-content:center;
+  gap:8px; padding:40px; color:var(--muted); font-family:var(--font-m); font-size:13px;
+}
+.spinner {
+  width:20px; height:20px; border:2px solid var(--border2);
+  border-top-color:var(--accent); border-radius:50%;
+  animation:spin 0.7s linear infinite;
+}
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* Upload progress */
+.upload-progress {
+  height:3px; background:var(--border2); border-radius:2px;
+  overflow:hidden; margin-top:8px; display:none;
+}
+.upload-progress .bar {
+  height:100%; background:var(--accent);
+  animation:progressAnim 1.2s ease-in-out infinite;
+}
+@keyframes progressAnim { 0%{width:0%;margin-left:0} 50%{width:60%;margin-left:20%} 100%{width:0%;margin-left:100%} }
+
+/* Scrollbar */
+::-webkit-scrollbar { width:6px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
+
+/* Responsive */
+@media(max-width:860px) {
+  .sidebar { width:260px; min-width:0; padding:20px 16px; }
+  .search-bar { flex-wrap:wrap; }
+  .results-area { padding:16px; }
+  header { padding:14px 20px; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    ResumeRank
+  </div>
+  <div class="header-meta">
+    <div class="status-pill">
+      <div class="dot"></div>
+      <span>System Active</span>
+    </div>
+    <span id="header-count">0 resumes loaded</span>
+  </div>
+</header>
+
+<main>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+
+  <!-- Upload -->
+  <div class="sidebar-section">
+    <h3>Upload Resume</h3>
+    <div class="upload-zone" id="drop-zone">
+      <input type="file" id="file-input" accept=".pdf,.txt" multiple/>
+      <div class="upload-icon">📄</div>
+      <p><strong>Drop files here</strong><br/>or click to browse<br/>PDF or TXT</p>
+    </div>
+    <div id="file-list"></div>
+    <div class="upload-progress" id="upload-progress"><div class="bar"></div></div>
+
+    <div style="margin-top:14px">
+      <div class="field">
+        <label class="field-label">Candidate Name (optional)</label>
+        <input type="text" id="candidate-name" placeholder="e.g. Priya Sharma"/>
+      </div>
+      <div class="field">
+        <label class="field-label">Job Category</label>
+        <select id="upload-category">
+          <option value="">Select category…</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="uploadResumes()">
+        ⬆ Upload Resume
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="sidebar-section">
+    <h3>Database Stats</h3>
+    <div class="stats-grid">
+      <div class="stat-chip"><div class="val" id="stat-total">0</div><div class="lbl">Total</div></div>
+      <div class="stat-chip"><div class="val" id="stat-short" style="color:var(--green)">0</div><div class="lbl">Shortlisted</div></div>
+      <div class="stat-chip"><div class="val" id="stat-wait" style="color:var(--yellow)">0</div><div class="lbl">Waitlisted</div></div>
+      <div class="stat-chip"><div class="val" id="stat-rej" style="color:var(--red)">0</div><div class="lbl">Rejected</div></div>
+    </div>
+  </div>
+
+  <!-- Help -->
+  <div class="sidebar-section">
+    <h3>How It Works</h3>
+    <div style="font-size:12px;color:var(--muted);line-height:1.7">
+      <p>1. Upload PDF or TXT resumes</p>
+      <p>2. Select a job category</p>
+      <p>3. Enter a job description</p>
+      <p>4. Click Search — candidates are ranked by AI match score</p>
+      <p>5. Shortlist, waitlist, or reject candidates</p>
+    </div>
+  </div>
+
+</aside>
+
+<!-- Content -->
+<div class="content">
+
+  <!-- Search Bar -->
+  <div class="search-bar">
+    <div class="field" style="max-width:200px">
+      <label class="field-label">Category</label>
+      <select id="search-category">
+        <option value="">All categories</option>
+      </select>
+    </div>
+    <div class="field" style="flex:1">
+      <label class="field-label">Job Description</label>
+      <input type="text" id="job-desc" placeholder="e.g. Senior software engineer with Python and machine learning experience…"/>
+    </div>
+    <button class="btn btn-primary search-btn" onclick="searchResumes()">
+      Search ↵
+    </button>
+  </div>
+
+  <!-- Results -->
+  <div class="results-area">
+    <div id="results-container">
+      <div class="empty-state">
+        <div class="empty-icon">🎯</div>
+        <h2>No search yet</h2>
+        <p>Upload resumes, select a category, enter a job description and hit Search to rank candidates.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+const API = '';  // same-origin when served by FastAPI
+let currentResults = [];
+let activeFilter = 'all';
+let selectedFile = null;
+
+// ── Init ──────────────────────────────────
+async function init() {
+  await loadCategories();
+  await refreshStats();
+}
+
+async function loadCategories() {
+  const res = await fetch(`${API}/api/categories`);
+  const data = await res.json();
+  const cats = data.categories;
+  ['upload-category','search-category'].forEach(id => {
+    const sel = document.getElementById(id);
+    const hasAll = id === 'search-category';
+    cats.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+async function refreshStats() {
+  try {
+    const res = await fetch(`${API}/api/stats`);
+    const d = await res.json();
+    document.getElementById('stat-total').textContent = d.total_resumes;
+    document.getElementById('stat-short').textContent = d.shortlisted;
+    document.getElementById('stat-wait').textContent = d.waitlisted;
+    document.getElementById('stat-rej').textContent = d.rejected;
+    document.getElementById('header-count').textContent = `${d.total_resumes} resume${d.total_resumes!==1?'s':''} loaded`;
+  } catch(e){}
+}
+
+// ── File Drag & Drop ──────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+
+function handleFiles(files) {
+  if (!files.length) return;
+  selectedFile = files[0]; // support single for now
+  const list = document.getElementById('file-list');
+  list.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'file-preview';
+  div.innerHTML = `<span>📄 ${selectedFile.name}</span><span class="remove" onclick="clearFile()">×</span>`;
+  list.appendChild(div);
+}
+
+function clearFile() {
+  selectedFile = null;
+  document.getElementById('file-list').innerHTML = '';
+  fileInput.value = '';
+}
+
+// ── Upload ────────────────────────────────
+async function uploadResumes() {
+  if (!selectedFile) { toast('Please select a file first.', 'warn'); return; }
+  const cat = document.getElementById('upload-category').value;
+  if (!cat) { toast('Please select a job category.', 'warn'); return; }
+
+  const prog = document.getElementById('upload-progress');
+  prog.style.display = 'block';
+
+  try {
+    const fd = new FormData();
+    fd.append('file', selectedFile);
+    fd.append('category', cat);
+    const name = document.getElementById('candidate-name').value.trim();
+    if (name) fd.append('candidate_name', name);
+
+    const res = await fetch(`${API}/api/upload`, { method:'POST', body:fd });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.detail || 'Upload failed');
+
+    toast(`✅ ${data.name} uploaded to ${data.category}`);
+    clearFile();
+    document.getElementById('candidate-name').value = '';
+    await refreshStats();
+  } catch(e) {
+    toast(`❌ ${e.message}`, 'error');
+  } finally {
+    prog.style.display = 'none';
+  }
+}
+
+// ── Search ────────────────────────────────
+async function searchResumes() {
+  const cat = document.getElementById('search-category').value;
+  const jd  = document.getElementById('job-desc').value.trim();
+
+  if (!cat) { toast('Please select a category to search.', 'warn'); return; }
+
+  const container = document.getElementById('results-container');
+  container.innerHTML = `<div class="loader"><div class="spinner"></div> Ranking candidates…</div>`;
+
+  try {
+    const params = new URLSearchParams({ category: cat });
+    if (jd) params.set('job_description', jd);
+    const res  = await fetch(`${API}/api/search?${params}`);
+    const data = await res.json();
+    currentResults = data.results || [];
+    activeFilter = 'all';
+    renderResults();
+  } catch(e) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h2>Search failed</h2><p>${e.message}</p></div>`;
+  }
+}
+
+function renderResults() {
+  const container = document.getElementById('results-container');
+  let filtered = currentResults;
+  if (activeFilter !== 'all') filtered = currentResults.filter(r => r.decision === activeFilter);
+
+  if (!currentResults.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><h2>No resumes found</h2><p>No resumes in this category yet. Upload some first.</p></div>`;
+    return;
+  }
+
+  const counts = { shortlist:0, waitlist:0, reject:0, pending:0 };
+  currentResults.forEach(r => counts[r.decision] = (counts[r.decision]||0)+1);
+
+  const tabs = [
+    { key:'all', label:`All (${currentResults.length})` },
+    { key:'shortlist', label:`✅ Shortlisted (${counts.shortlist})` },
+    { key:'waitlist', label:`⏳ Waitlisted (${counts.waitlist})` },
+    { key:'reject', label:`❌ Rejected (${counts.reject})` },
+    { key:'pending', label:`Pending (${counts.pending})` },
+  ];
+
+  let html = `<div class="results-header">
+    <div class="results-count">Showing <span>${filtered.length}</span> of <span>${currentResults.length}</span> candidates</div>
+    <div class="filter-tabs">
+      ${tabs.map(t => `<button class="tab ${activeFilter===t.key?'active':''}" onclick="setFilter('${t.key}')">${t.label}</button>`).join('')}
+    </div>
+  </div>`;
+
+  if (!filtered.length) {
+    html += `<div class="empty-state" style="min-height:200px"><div class="empty-icon">🔍</div><h2>No results</h2><p>No candidates match this filter.</p></div>`;
+  } else {
+    filtered.forEach((c, i) => {
+      html += buildCard(c, i);
+    });
+  }
+
+  container.innerHTML = html;
+
+  // animate score rings after render
+  filtered.forEach(c => {
+    const ring = document.querySelector(`.score-ring[data-id="${c.id}"] .fg`);
+    if (ring) {
+      const pct = c.score / 100;
+      const dash = 138;
+      ring.style.strokeDashoffset = dash - (dash * pct);
+      ring.style.stroke = scoreColor(c.score);
+    }
+    const fill = document.querySelector(`.elig-fill[data-id="${c.id}"]`);
+    if (fill) {
+      fill.style.width = c.score + '%';
+      fill.style.background = scoreColor(c.score);
+    }
+    const label = document.querySelector(`.score-ring[data-id="${c.id}"] .score-num`);
+    if (label) label.style.color = scoreColor(c.score);
+  });
+}
+
+function buildCard(c, i) {
+  const rankClass = c.rank===1?'top1':c.rank===2?'top2':c.rank===3?'top3':'';
+  const rankLabel = c.rank===1?'🥇':c.rank===2?'🥈':c.rank===3?'🥉':`#${c.rank}`;
+  const decClass  = c.decision==='pending'?'pending':c.decision;
+  const eligLabel = c.score>=60?'Highly Eligible':c.score>=40?'Eligible':'Not Eligible';
+
+  return `
+  <div class="candidate-card ${c.decision!=='pending'?c.decision:''}" id="card-${c.id}" style="animation-delay:${i*40}ms">
+    <div class="card-main" onclick="toggleExpand('${c.id}')">
+      <div class="rank-badge ${rankClass}">${rankLabel}</div>
+      <div class="card-info">
+        <div class="candidate-name">${escHtml(c.name)}</div>
+        <div class="candidate-meta">
+          <span>${c.category}</span>
+          <span>${c.filename}</span>
+          <span>${eligLabel}</span>
+        </div>
+      </div>
+      <div class="score-ring" data-id="${c.id}">
+        <svg viewBox="0 0 50 50"><circle class="bg" cx="25" cy="25" r="22"/><circle class="fg" cx="25" cy="25" r="22" stroke-dasharray="138" stroke-dashoffset="138"/></svg>
+        <div class="label"><span class="score-num" style="font-size:13px">${c.score}%</span><span>match</span></div>
+      </div>
+      <div class="decision-badge ${decClass}" style="margin-left:10px">${c.decision}</div>
+    </div>
+    <div class="card-expand" id="expand-${c.id}">
+      <div class="elig-bar">
+        <span class="elig-label">Match Score</span>
+        <div class="elig-track"><div class="elig-fill" data-id="${c.id}" style="width:0%"></div></div>
+        <span style="font-family:var(--font-m);font-size:11px;color:var(--muted);width:36px;text-align:right">${c.score}%</span>
+      </div>
+      <div class="resume-preview">${escHtml(c.preview)}</div>
+      <div class="action-row">
+        <button class="action-btn shortlist" onclick="setDecision('${c.id}','shortlist')">✅ Shortlist</button>
+        <button class="action-btn waitlist" onclick="setDecision('${c.id}','waitlist')">⏳ Waitlist</button>
+        <button class="action-btn reject" onclick="setDecision('${c.id}','reject')">❌ Reject</button>
+        <button class="action-btn delete" onclick="deleteResume('${c.id}')">🗑 Remove</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleExpand(id) {
+  const el = document.getElementById(`expand-${id}`);
+  el.classList.toggle('open');
+  // animate ring when opened
+  const c = currentResults.find(r=>r.id===id);
+  if (c && el.classList.contains('open')) {
+    setTimeout(() => {
+      const ring = document.querySelector(`.score-ring[data-id="${id}"] .fg`);
+      if (ring) { ring.style.strokeDashoffset = 138 - (138 * c.score/100); ring.style.stroke = scoreColor(c.score); }
+      const fill = document.querySelector(`.elig-fill[data-id="${id}"]`);
+      if (fill) { fill.style.width = c.score+'%'; fill.style.background = scoreColor(c.score); }
+    }, 30);
+  }
+}
+
+function setFilter(key) {
+  activeFilter = key;
+  renderResults();
+}
+
+async function setDecision(id, decision) {
+  try {
+    await fetch(`${API}/api/decision`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ resume_id:id, decision })
+    });
+    const c = currentResults.find(r=>r.id===id);
+    if (c) c.decision = decision;
+    renderResults();
+    await refreshStats();
+    const labels = {shortlist:'Shortlisted ✅', waitlist:'Waitlisted ⏳', reject:'Rejected ❌'};
+    toast(labels[decision] || 'Updated');
+  } catch(e) { toast('Failed to update decision','error'); }
+}
+
+async function deleteResume(id) {
+  if (!confirm('Remove this resume from the database?')) return;
+  try {
+    await fetch(`${API}/api/resume/${id}`, { method:'DELETE' });
+    currentResults = currentResults.filter(r=>r.id!==id);
+    renderResults();
+    await refreshStats();
+    toast('Resume removed');
+  } catch(e) { toast('Failed to remove','error'); }
+}
+
+// ── Helpers ───────────────────────────────
+function scoreColor(s) {
+  if (s>=60) return 'var(--green)';
+  if (s>=40) return 'var(--yellow)';
+  return 'var(--red)';
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+let toastTimer;
+function toast(msg, type='success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = type==='error'?'var(--red)':type==='warn'?'var(--yellow)':'var(--border2)';
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// Enter key for search
+document.addEventListener('keydown', e => {
+  if (e.key==='Enter' && document.activeElement.id==='job-desc') searchResumes();
+});
+
+init();
+</script>
+</body>
+</html>
