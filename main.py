@@ -1,367 +1,227 @@
-#3rd and final step using streamlit
-import streamlit as st
-import pandas as pd
-import pickle
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import json, os, re, uuid
+from pathlib import Path
+from typing import Optional
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-import os
 
-# Load model and data
-@st.cache_resource
-def load_resources():
-    try:
-        model = pickle.load(open('models/trained_model.pkl', 'rb'))
-        vectorizer = pickle.load(open('models/vectorizer.pkl', 'rb'))
-        resumes_df = pd.read_csv('data/resumes_clean.csv')
-        labels_df = pd.read_csv('data/labels_clean.csv')
-        return model, vectorizer, resumes_df, labels_df
-    except FileNotFoundError as e:
-        st.error(f"Error loading files: {e}")
-        st.stop()
+# Optional imports
+try:
+    import pdfplumber
+    PDF_SUPPORT = True
+except:
+    PDF_SUPPORT = False
 
-# Calculate match score using keyword matching (more generous than TF-IDF)
-def calculate_match_score(job_desc, resume_text, vectorizer):
-    try:
-        # Convert to lowercase for comparison
-        job_desc_lower = job_desc.lower()
-        resume_lower = resume_text.lower()
-        
-        # Extract keywords from job description (words > 3 chars)
-        job_keywords = set([word for word in job_desc_lower.split() if len(word) > 3])
-        resume_words = set(resume_lower.split())
-        
-        # Calculate keyword match percentage
-        if len(job_keywords) == 0:
-            return 50.0  # Default score if no keywords
-        
-        matches = job_keywords.intersection(resume_words)
-        keyword_score = (len(matches) / len(job_keywords)) * 100
-        
-        # Also use TF-IDF for additional scoring
-        try:
-            job_vec = vectorizer.transform([job_desc])
-            resume_vec = vectorizer.transform([resume_text])
-            tfidf_similarity = cosine_similarity(job_vec, resume_vec)[0][0]
-            tfidf_score = tfidf_similarity * 100
-        except:
-            tfidf_score = 0
-        
-        # Combine both scores: 60% keyword match + 40% TF-IDF
-        final_score = (keyword_score * 0.6) + (tfidf_score * 0.4)
-        
-        # Boost score slightly for category relevance (base score of 35)
-        final_score = final_score * 0.65 + 35
-        
-        return max(0, min(100, final_score))
-    except Exception as e:
-        return 50.0  # Default fallback score
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+    SKLEARN_SUPPORT = True
+except:
+    SKLEARN_SUPPORT = False
 
-# Set page config
-st.set_page_config(
-    page_title="Company Recruitment Portal",
-    page_icon="👔",
-    layout="wide",
-    initial_sidebar_state="expanded"
+app = FastAPI(title="Resume Ranker API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Custom CSS
-st.markdown("""
-    <style>
-    body {
-        background-color: #0F1419;
-        color: #FFFFFF;
-    }
-    .main {
-        background-color: #0F1419;
-    }
-    .stMetric {
-        background-color: #1A1F2E;
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #2D3748;
-    }
-    .rank-box {
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-        border-left: 5px solid;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+BASE_DIR = Path(__file__).parent.parent
+DATA_DIR = BASE_DIR / "data"
+RESUMES_FILE = DATA_DIR / "resumes.json"
+DECISIONS_FILE = DATA_DIR / "decisions.json"
 
-# Title
-st.markdown("""
-    <h1 style='text-align: center; color: #00D4FF;'>👔 Company Recruitment Portal</h1>
-    <p style='text-align: center; color: #A0AEC0;'>Candidate Search & Ranking System</p>
-    <p style='text-align: center; color: #718096; font-size: 12px;'>Powered by AI-ML | 2,484 Resume Database | 24 Job Categories</p>
-    """, unsafe_allow_html=True)
+DATA_DIR.mkdir(exist_ok=True)
 
-st.markdown("---")
-
-# Load resources
-try:
-    model, vectorizer, resumes_df, labels_df = load_resources()
-except:
-    st.error("Failed to load model and data files")
-    st.stop()
-
-# Define job categories
-job_categories = [
-    "ACCOUNTANT",
-    "ADVOCATE",
-    "AGRICULTURE-MANAGEMENT",
-    "APPAREL",
-    "ARTS",
-    "AUTOMOBILE",
-    "AVIATION",
-    "BANKING",
-    "BPO",
-    "BUSINESS-DEVELOPMENT",
-    "CHEF",
-    "CONSTRUCTION",
-    "CONSULTANT",
-    "DESIGNER",
-    "DIGITAL-MEDIA",
-    "ENGINEERING",
-    "FINANCE",
-    "HEALTHCARE",
-    "HR",
-    "INFORMATION-TECHNOLOGY",
-    "LAW",
-    "MEDIA-ENTERTAINMENT",
-    "SALES",
-    "TEACHER"
+JOB_CATEGORIES = [
+    "ACCOUNTANT", "ADVOCATE", "AGRICULTURE", "APPAREL", "ARTS",
+    "AUTOMOBILE", "AVIATION", "BANKING", "BPO", "BUSINESS-DEVELOPMENT",
+    "CHEF", "CONSTRUCTION", "CONSULTANT", "DESIGNER", "DIGITAL-MEDIA",
+    "ENGINEERING", "FINANCE", "HEALTHCARE", "HR", "INFORMATION-TECHNOLOGY",
+    "LAW", "MEDIA-ENTERTAINMENT", "SALES", "TEACHER"
 ]
 
-# Sidebar for controls
-with st.sidebar:
-    st.markdown("### 📋 Search Parameters")
-    
-    # Category selection
-    selected_category = st.selectbox(
-        "Select Job Category",
-        options=job_categories,
-        help="Choose the job category to search resumes"
-    )
-    
-    st.markdown("---")
-    
-    # Job description
-    st.markdown("### 📝 Job Description")
-    
-    job_description = st.text_area(
-        "Enter job description (optional but recommended)",
-        value=f"Looking for a {selected_category.lower().replace('-', ' ')} with relevant experience and skills",
-        height=250,
-        key="job_desc"
-    )
-    
-    # Number of results
-    num_results = st.slider(
-        "Number of candidates to display",
-        min_value=5,
-        max_value=50,
-        value=10,
-        step=5
-    )
-    
-    st.markdown("---")
-    
-    # Database info
-    st.markdown("### 📊 Database Info")
-    
-    category_count = len(resumes_df[resumes_df['category'] == selected_category])
-    st.write(f"✅ Status: Active")
-    st.write(f"📂 Selected Category: {selected_category}")
-    st.write(f"👥 Resumes in Category: {category_count}")
-    st.write(f"📦 Total Database: 2,484")
-    st.write(f"🏢 Job Categories: 24")
+def load_resumes():
+    if RESUMES_FILE.exists():
+        return json.loads(RESUMES_FILE.read_text())
+    return []
 
-# Main content
-st.subheader(f"🔍 Search Results: {selected_category}")
+def save_resumes(resumes):
+    RESUMES_FILE.write_text(json.dumps(resumes, indent=2))
 
-search_button = st.button(
-    "🔍 Search Database",
-    use_container_width=True,
-    type="primary"
-)
+def load_decisions():
+    if DECISIONS_FILE.exists():
+        return json.loads(DECISIONS_FILE.read_text())
+    return {}
 
-if search_button:
-    if not job_description.strip():
-        st.error("❌ Please enter a job description")
+def save_decisions(decisions):
+    DECISIONS_FILE.write_text(json.dumps(decisions, indent=2))
+
+def clean_text(text: str) -> str:
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+def extract_text_from_pdf(content: bytes) -> str:
+    if not PDF_SUPPORT:
+        return ""
+    import io
+    try:
+        with pdfplumber.open(io.BytesIO(content)) as pdf:
+            return " ".join(page.extract_text() or "" for page in pdf.pages)
+    except:
+        return ""
+
+def calculate_match_score(job_desc: str, resume_text: str) -> float:
+    job_lower = job_desc.lower()
+    resume_lower = resume_text.lower()
+
+    # Keyword match
+    job_keywords = set(w for w in re.findall(r'\b\w{4,}\b', job_lower))
+    resume_words = set(re.findall(r'\b\w{4,}\b', resume_lower))
+    if not job_keywords:
+        return 50.0
+    keyword_score = len(job_keywords & resume_words) / len(job_keywords) * 100
+
+    # TF-IDF cosine similarity
+    tfidf_score = 0.0
+    if SKLEARN_SUPPORT:
+        try:
+            vec = TfidfVectorizer(max_features=500, stop_words='english')
+            matrix = vec.fit_transform([job_desc, resume_text])
+            tfidf_score = cosine_similarity(matrix[0], matrix[1])[0][0] * 100
+        except:
+            pass
+
+    # Weighted combination with a floor
+    raw = (keyword_score * 0.6) + (tfidf_score * 0.4)
+    final = raw * 0.65 + 35
+    return round(min(100, max(0, final)), 1)
+
+# ── Routes ──────────────────────────────────────────────
+
+@app.get("/api/categories")
+def get_categories():
+    return {"categories": JOB_CATEGORIES}
+
+@app.post("/api/upload")
+async def upload_resume(
+    file: UploadFile = File(...),
+    category: str = Form(...),
+    candidate_name: Optional[str] = Form(None)
+):
+    if category not in JOB_CATEGORIES:
+        raise HTTPException(400, f"Invalid category: {category}")
+
+    content = await file.read()
+    filename = file.filename or "unknown"
+
+    if filename.lower().endswith(".pdf"):
+        text = extract_text_from_pdf(content)
+        if not text.strip():
+            raise HTTPException(400, "Could not extract text from PDF. Try a text-based PDF.")
+    elif filename.lower().endswith(".txt"):
+        text = content.decode("utf-8", errors="ignore")
     else:
-        # Filter resumes by selected category
-        category_resumes = resumes_df[resumes_df['category'] == selected_category].copy()
-        
-        if len(category_resumes) == 0:
-            st.error(f"❌ No resumes found for {selected_category}")
-        else:
-            # Calculate match scores
-            candidates = []
-            
-            with st.spinner("Calculating match scores..."):
-                for idx, row in category_resumes.iterrows():
-                    resume_text = str(row['resume_text'])
-                    
-                    if len(resume_text.strip()) > 0:
-                        score = calculate_match_score(job_description, resume_text, vectorizer)
-                        
-                        candidates.append({
-                            'rank': 0,
-                            'candidate_id': idx,
-                            'score': score,
-                            'resume_text': resume_text,
-                            'category': row['category']
-                        })
-            
-            # Sort by score
-            candidates_sorted = sorted(candidates, key=lambda x: x['score'], reverse=True)
-            
-            # Add rank
-            for idx, candidate in enumerate(candidates_sorted[:num_results], 1):
-                candidate['rank'] = idx
-            
-            candidates_display = candidates_sorted[:num_results]
-            
-            # Display summary
-            st.success(f"✅ Found {len(category_resumes)} resumes in {selected_category}")
-            st.info(f"🏆 Displaying top {len(candidates_display)} candidates")
-            
-            st.markdown("---")
-            
-            # Display leaderboard
-            for candidate in candidates_display:
-                rank = candidate['rank']
-                score = candidate['score']
-                resume_preview = candidate['resume_text']
-                
-                # Determine eligibility status
-                if score >= 60:
-                    rating = "🟢 Highly Eligible"
-                    color = "#10B981"
-                    border_color = "10B981"
-                elif score >= 40:
-                    rating = "🟡 Eligible"
-                    color = "#F59E0B"
-                    border_color = "F59E0B"
-                else:
-                    rating = "🔴 Not Eligible"
-                    color = "#EF4444"
-                    border_color = "EF4444"
-                
-                # Medal emoji
-                medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
-                
-                # Create card
-                with st.container():
-                    col_medal, col_info, col_score = st.columns([0.5, 2, 1.5])
-                    
-                    with col_medal:
-                        st.markdown(f"<h2 style='text-align: center; color: {color};'>{medal}</h2>", unsafe_allow_html=True)
-                    
-                    with col_info:
-                        st.markdown(f"""
-                            <div style='padding: 10px;'>
-                            <p style='margin: 0; font-weight: bold; color: white;'>Candidate #{rank}</p>
-                            <p style='margin: 5px 0 0 0; color: {color};'>{rating}</p>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    
-                    with col_score:
-                        st.markdown(f"""
-                            <div style='text-align: center; padding: 10px; background: {color}20; 
-                            border-radius: 8px; border: 2px solid {color};'>
-                            <p style='margin: 0; color: {color}; font-weight: bold; font-size: 18px;'>{score:.1f}%</p>
-                            <p style='margin: 5px 0 0 0; color: {color}; font-size: 12px;'>Match Score</p>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    
-                    # Expandable details
-                    with st.expander(f"View Resume - Candidate #{rank}", expanded=(rank == 1)):
-                        
-                        col_detail1, col_detail2, col_detail3 = st.columns(3)
-                        
-                        with col_detail1:
-                            st.metric("Match %", f"{score:.1f}%")
-                        
-                        with col_detail2:
-                            st.metric("Rank", f"#{rank}")
-                        
-                        with col_detail3:
-                            st.metric("Category", selected_category)
-                        
-                        # Resume preview
-                        st.markdown("**Resume Content:**")
-                        preview_length = 500
-                        preview = resume_preview[:preview_length] + "..." if len(resume_preview) > preview_length else resume_preview
-                        st.text_area(
-                            label="Resume Text",
-                            value=preview,
-                            height=200,
-                            disabled=True,
-                            key=f"resume_{rank}"
-                        )
-                        
-                        # Action buttons
-                        col_action1, col_action2, col_action3 = st.columns(3)
-                        
-                        with col_action1:
-                            if st.button(f"✅ Shortlist", key=f"shortlist_{rank}"):
-                                st.success(f"✅ Candidate #{rank} shortlisted for interview")
-                        
-                        with col_action2:
-                            if st.button(f"⏳ Waitlist", key=f"waitlist_{rank}"):
-                                st.info(f"⏳ Candidate #{rank} added to waitlist")
-                        
-                        with col_action3:
-                            if st.button(f"❌ Reject", key=f"reject_{rank}"):
-                                st.error(f"❌ Candidate #{rank} rejected")
-                    
-                    st.markdown("")
-            
-            # Summary statistics
-            st.markdown("---")
-            st.markdown("### 📊 Summary Statistics")
-            
-            col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-            
-            with col_stat1:
-                st.metric("Total Resumes", len(category_resumes))
-            
-            with col_stat2:
-                highly_eligible = sum(1 for c in candidates_display if c['score'] >= 60)
-                st.metric("Highly Eligible", highly_eligible)
-            
-            with col_stat3:
-                eligible = sum(1 for c in candidates_display if 40 <= c['score'] < 60)
-                st.metric("Eligible", eligible)
-            
-            with col_stat4:
-                not_eligible = sum(1 for c in candidates_display if c['score'] < 40)
-                st.metric("Not Eligible", not_eligible)
-            
-            # Score distribution
-            st.markdown("### 📈 Score Distribution (Top 10)")
-            
-            top_10_scores = [c['score'] for c in candidates_display[:10]]
-            top_10_ranks = [f"#{c['rank']}" for c in candidates_display[:10]]
-            
-            score_df = pd.DataFrame({
-                'Candidate': top_10_ranks,
-                'Match Score': top_10_scores
-            })
-            
-            st.bar_chart(score_df.set_index('Candidate'))
+        raise HTTPException(400, "Only PDF and TXT files are supported.")
 
-else:
-    st.info("👇 Select a job category, enter job description, and click 'Search Database' to find matching candidates")
+    text = clean_text(text)
+    if len(text) < 50:
+        raise HTTPException(400, "Resume text too short (< 50 characters).")
 
-st.markdown("---")
+    resume_id = str(uuid.uuid4())[:8]
+    name = candidate_name.strip() if candidate_name and candidate_name.strip() else filename.rsplit(".", 1)[0]
 
-# Footer
-st.markdown("""
-    <p style='text-align: center; color: #4B5563; font-size: 12px;'>
-    Company Recruitment Portal © 2025 | AI-Powered Screening System<br>
-    Searches 2,484 resumes across 24 job categories | Confidential for company use only
-    </p>
-    """, unsafe_allow_html=True)
+    resumes = load_resumes()
+    resumes.append({
+        "id": resume_id,
+        "name": name,
+        "filename": filename,
+        "category": category,
+        "text": text[:6000],
+        "length": len(text)
+    })
+    save_resumes(resumes)
+
+    return {"success": True, "resume_id": resume_id, "name": name, "category": category}
+
+@app.get("/api/search")
+def search_resumes(category: str, job_description: str = ""):
+    resumes = load_resumes()
+    decisions = load_decisions()
+
+    category_resumes = [r for r in resumes if r["category"] == category]
+    if not category_resumes:
+        return {"results": [], "total": 0}
+
+    jd = job_description.strip() or f"Looking for a skilled {category.lower()} professional with relevant experience."
+
+    results = []
+    for r in category_resumes:
+        score = calculate_match_score(jd, r["text"])
+        results.append({
+            "id": r["id"],
+            "name": r["name"],
+            "filename": r["filename"],
+            "category": r["category"],
+            "score": score,
+            "preview": r["text"][:400] + "..." if len(r["text"]) > 400 else r["text"],
+            "decision": decisions.get(r["id"], "pending"),
+            "length": r["length"]
+        })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    for i, r in enumerate(results):
+        r["rank"] = i + 1
+
+    return {"results": results, "total": len(results)}
+
+@app.post("/api/decision")
+def set_decision(payload: dict):
+    resume_id = payload.get("resume_id")
+    decision = payload.get("decision")  # shortlist | waitlist | reject | pending
+
+    if not resume_id or decision not in ("shortlist", "waitlist", "reject", "pending"):
+        raise HTTPException(400, "Invalid payload")
+
+    decisions = load_decisions()
+    decisions[resume_id] = decision
+    save_decisions(decisions)
+    return {"success": True, "resume_id": resume_id, "decision": decision}
+
+@app.get("/api/decisions")
+def get_all_decisions():
+    return load_decisions()
+
+@app.delete("/api/resume/{resume_id}")
+def delete_resume(resume_id: str):
+    resumes = load_resumes()
+    resumes = [r for r in resumes if r["id"] != resume_id]
+    save_resumes(resumes)
+    decisions = load_decisions()
+    decisions.pop(resume_id, None)
+    save_decisions(decisions)
+    return {"success": True}
+
+@app.get("/api/stats")
+def get_stats():
+    resumes = load_resumes()
+    decisions = load_decisions()
+    by_category = {}
+    for r in resumes:
+        by_category[r["category"]] = by_category.get(r["category"], 0) + 1
+    return {
+        "total_resumes": len(resumes),
+        "by_category": by_category,
+        "shortlisted": sum(1 for d in decisions.values() if d == "shortlist"),
+        "rejected": sum(1 for d in decisions.values() if d == "reject"),
+        "waitlisted": sum(1 for d in decisions.values() if d == "waitlist"),
+    }
+
+# Serve frontend
+FRONTEND_DIR = BASE_DIR / "frontend"
+if FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
